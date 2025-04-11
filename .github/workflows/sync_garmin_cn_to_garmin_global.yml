@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     # 每小时的第0,15,30,45分执行（UTC+8 中国时区）
-    - cron: '0,15,30,45 * * * *'
+    - cron: "0,15,30,45 * * * *"
   push:
     branches:
       - main
