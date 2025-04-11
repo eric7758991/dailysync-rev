@@ -3,40 +3,40 @@ name: Sync Garmin CN to Garmin Global
 on:
   workflow_dispatch:
   schedule:
-   - cron: "0.15.30.45 * * * *"
-      timezone: 'Asia/Shanghai'
+    # 每小时的第0,15,30,45分执行（UTC+8 中国时区）
+    - cron: '0,15,30,45 * * * *'
   push:
     branches:
       - main
 
 env:
-  TZ: Asia/Shanghai
+  TZ: Asia/Shanghai  # 设置中国时区
 
 jobs:
   sync-job:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
     name: Garmin Data Sync
     permissions:
       contents: write
     steps:
-      # 1. Checkout with full history
+      # 1. 检出代码
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. Setup Node.js with caching
+      # 2. 设置Node.js环境
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'yarn'
 
-      # 3. Install dependencies securely
+      # 3. 安装依赖
       - name: Install dependencies
         run: |
           yarn install --frozen-lockfile
           yarn cache clean
 
-      # 4. Health check (optional)
+      # 4. 健康检查
       - name: Check Garmin Service Status
         run: |
           curl -sSf https://connect.garmin.com > /dev/null || {
@@ -44,7 +44,7 @@ jobs:
           }
         timeout-minutes: 2
 
-      # 5. Main sync with robust retry logic
+      # 5. 主同步步骤
       - name: Run synchronization
         id: sync
         env:
@@ -58,33 +58,42 @@ jobs:
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
           GARMIN_GLOBAL_USERNAME: ${{ secrets.GARMIN_GLOBAL_USERNAME }}
           GARMIN_GLOBAL_PASSWORD: ${{ secrets.GARMIN_GLOBAL_PASSWORD }}
+          TZ: Asia/Shanghai  # 确保脚本内也使用中国时区
         run: |
-          max_attempts=2
-          attempt=1
-          success=false
+          # 创建日志目录
+          mkdir -p logs
           
-          while [ $attempt -le $max_attempts ]; do
-            echo "::group::Attempt $attempt of $max_attempts"
-            if yarn sync_cn; then
-              success=true
+          # 带日志记录的执行
+          {
+            echo "Sync started at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+            
+            max_attempts=2
+            attempt=1
+            success=false
+            
+            while [ $attempt -le $max_attempts ]; do
+              echo "::group::Attempt $attempt of $max_attempts"
+              if yarn sync_cn 2>&1; then
+                success=true
+                echo "::endgroup::"
+                break
+              fi
               echo "::endgroup::"
-              break
-            fi
-            echo "::endgroup::"
-            attempt=$((attempt+1))
-            [ $attempt -le $max_attempts ] && sleep 30
-          done
+              attempt=$((attempt+1))
+              [ $attempt -le $max_attempts ] && sleep 30
+            done
 
-          if [ "$success" = true ]; then
-            echo "::notice::Sync completed successfully"
-            exit 0
-          else
-            echo "::error::All sync attempts failed"
-            exit 1
-          fi
+            if [ "$success" = true ]; then
+              echo "::notice::Sync completed successfully at $(date '+%Y-%m-%d %H:%M:%S %Z')"
+              exit 0
+            else
+              echo "::error::All sync attempts failed"
+              exit 1
+            fi
+          } | tee "logs/sync_$(date +%Y%m%d_%H%M%S).log"
         timeout-minutes: 15
 
-      # 6. Fixed commit step
+      # 6. 提交变更
       - name: Commit changes
         if: success() && steps.sync.outcome == 'success'
         uses: stefanzweifel/git-auto-commit-action@v5
@@ -93,15 +102,15 @@ jobs:
           branch: main
           skip_fetch: true
           skip_dirty_check: true
-        continue-on-error: true  # 关键修复
+        continue-on-error: true
 
-      # 7. Optional log archive
+      # 7. 日志归档
       - name: Archive logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sync-logs-${{ github.run_id }}
           path: |
-            *.log
-            logs/
-          retention-days: 3
+            logs/*.log
+            !logs/empty.txt
+          retention-days: 7
