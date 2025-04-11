@@ -10,24 +10,23 @@ on:
 
 env:
   TZ: Asia/Shanghai
-  # Secrets will be injected per-step for security
 
 jobs:
   sync-job:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # 明确指定新版Ubuntu
     name: Garmin Data Sync
     permissions:
       contents: write
     steps:
       # 1. Checkout with full history
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4  # 更新到v4
         with:
           fetch-depth: 0
 
       # 2. Setup Node.js with caching
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4  # 更新到v4
         with:
-          node-version: '18'
+          node-version: '20'  # 建议升级到Node 20
           cache: 'yarn'
 
       # 3. Install dependencies securely
@@ -85,7 +84,7 @@ jobs:
           fi
         timeout-minutes: 15
 
-      # 6. Commit changes only if sync succeeded
+      # 6. Commit changes
       - name: Commit changes
         if: success() && steps.sync.outcome == 'success'
         uses: stefanzweifel/git-auto-commit-action@v5
@@ -95,7 +94,7 @@ jobs:
           skip_fetch: true
           skip_dirty_check: true
 
-      # 7. Fixed BARK notifications
+      # 7. Notifications (fixed)
       - name: Send success notification
         if: success()
         env:
@@ -115,10 +114,10 @@ jobs:
           curl -sSf "https://api.day.app/$BARK_KEY/$encoded_title/$encoded_body?level=active&url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
         timeout-minutes: 2
 
-      # 8. Optional log archive
+      # 8. Updated artifact upload
       - name: Archive logs
         if: always()
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4  # 更新到v4
         with:
           name: sync-logs-${{ github.run_id }}
           path: |
