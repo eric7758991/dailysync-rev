@@ -3,13 +3,13 @@ name: Sync Garmin CN to Garmin Global
 on:
   workflow_dispatch:
   schedule:
-    #  每10分钟检查一次
-    - cron: "*/10 * * * *"
+    - cron: "*/15 * * * *"
   push:
     branches:
       - main
 
 env:
+  TZ: Asia/Shanghai
   # please change to your own config.
   RQ_COOKIE: ${{ secrets.RQ_COOKIE }}
   RQ_CSRF_TOKEN: ${{ secrets.RQ_CSRF_TOKEN }}
@@ -24,20 +24,73 @@ env:
   GARMIN_GLOBAL_PASSWORD: ${{ secrets.GARMIN_GLOBAL_PASSWORD }}
 
 jobs:
-  build:
+  sync-job:
     runs-on: ubuntu-latest
-    name: Sync Garmin CN to Garmin Global
+    name: Sync Garmin Data
     permissions:
       contents: write
     steps:
+      # 1. Checkout with full history
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # 2. Setup Node.js with caching
       - uses: actions/setup-node@v3
         with:
           node-version: '18'
           cache: 'yarn'
-      - run: yarn
-      - run: yarn sync_cn
-        timeout-minutes: 5
-      - uses: stefanzweifel/git-auto-commit-action@v5
+
+      # 3. Install dependencies securely
+      - name: Install dependencies
+        run: |
+          yarn install --frozen-lockfile
+          yarn cache clean
+
+      # 4. Health check (example)
+      - name: Check Garmin Service Status
+        run: |
+          curl -sSf https://connect.garmin.com > /dev/null || {
+            echo "::error::Garmin service unavailable"
+            exit 1
+          }
+        timeout-minutes: 2
+
+      # 5. Run synchronization with retry
+      - name: Run synchronization
+        id: sync
+        run: |
+          max_attempts=2
+          attempt=1
+          while [ $attempt -le $max_attempts ]; do
+            echo "Attempt $attempt of $max_attempts"
+            yarn sync_cn && break
+            attempt=$((attempt+1))
+            sleep 30
+          done
+          [ $attempt -gt $max_attempts ] && exit 1
+        timeout-minutes: 15
+
+      # 6. Commit changes only if sync succeeded
+      - name: Commit changes
+        if: success() && steps.sync.outcome == 'success'
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: Save Garmin Session
+          commit_message: "chore: Update Garmin Session [skip ci]"
+          branch: main
+          skip_fetch: true
+          skip_dirty_check: true
+
+      # 7. Notification system
+      - name: Send success notification
+        if: success()
+        run: |
+          curl -s \
+            "https://api.day.app/$BARK_KEY/Garmin同步成功/中国区数据已同步到国际服?level=passive"
+
+      - name: Send failure notification
+        if: failure()
+        run: |
+          curl -s \
+            "https://api.day.app/$BARK_KEY/Garmin同步失败/请检查GitHub Actions日志?level=active"
+        timeout-minutes: 2
