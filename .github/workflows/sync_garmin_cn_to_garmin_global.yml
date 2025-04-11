@@ -83,7 +83,7 @@ jobs:
           fi
         timeout-minutes: 15
 
-      # 6. Commit changes with no-error handling
+      # 6. Fixed commit step
       - name: Commit changes
         if: success() && steps.sync.outcome == 'success'
         uses: stefanzweifel/git-auto-commit-action@v5
@@ -92,13 +92,9 @@ jobs:
           branch: main
           skip_fetch: true
           skip_dirty_check: true
-          exit_on_no_changes: false
-          skip_empty_commits: true
+        continue-on-error: true  # 关键修复
 
-      # 7. Removed all notification steps
-      # (Intentionally left blank as notifications are disabled)
-
-      # 8. Optional log archive
+      # 7. Optional log archive
       - name: Archive logs
         if: always()
         uses: actions/upload-artifact@v4
