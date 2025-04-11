@@ -3,8 +3,8 @@ name: Sync Garmin CN to Garmin Global
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0,15,30,45 * * * *'
-    timezone: 'Asia/Shanghai'  # 北京时间
+   - cron: '0,15,30,45 * * * *'
+      timezone: 'Asia/Shanghai'
   push:
     branches:
       - main
