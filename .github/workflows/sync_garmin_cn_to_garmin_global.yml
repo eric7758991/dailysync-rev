@@ -13,20 +13,20 @@ env:
 
 jobs:
   sync-job:
-    runs-on: ubuntu-24.04  # 明确指定新版Ubuntu
+    runs-on: ubuntu-24.04
     name: Garmin Data Sync
     permissions:
       contents: write
     steps:
       # 1. Checkout with full history
-      - uses: actions/checkout@v4  # 更新到v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       # 2. Setup Node.js with caching
-      - uses: actions/setup-node@v4  # 更新到v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'  # 建议升级到Node 20
+          node-version: '20'
           cache: 'yarn'
 
       # 3. Install dependencies securely
@@ -35,16 +35,15 @@ jobs:
           yarn install --frozen-lockfile
           yarn cache clean
 
-      # 4. Health check
+      # 4. Health check (optional)
       - name: Check Garmin Service Status
         run: |
           curl -sSf https://connect.garmin.com > /dev/null || {
-            echo "::error::Garmin service unavailable"
-            exit 1
+            echo "::warning::Garmin service may be unavailable"
           }
         timeout-minutes: 2
 
-      # 5. Main sync with fixed retry logic
+      # 5. Main sync with robust retry logic
       - name: Run synchronization
         id: sync
         env:
@@ -84,7 +83,7 @@ jobs:
           fi
         timeout-minutes: 15
 
-      # 6. Commit changes
+      # 6. Commit changes with no-error handling
       - name: Commit changes
         if: success() && steps.sync.outcome == 'success'
         uses: stefanzweifel/git-auto-commit-action@v5
@@ -93,31 +92,16 @@ jobs:
           branch: main
           skip_fetch: true
           skip_dirty_check: true
+          exit_on_no_changes: false
+          skip_empty_commits: true
 
-      # 7. Notifications (fixed)
-      - name: Send success notification
-        if: success()
-        env:
-          BARK_KEY: ${{ secrets.BARK_KEY }}
-        run: |
-          encoded_title=$(echo "Garmin同步成功" | xxd -plain | tr -d '\n' | sed 's/\(..\)/%\1/g')
-          encoded_body=$(echo "中国区数据已同步到国际服（运行ID: $GITHUB_RUN_ID）" | xxd -plain | tr -d '\n' | sed 's/\(..\)/%\1/g')
-          curl -sSf "https://api.day.app/$BARK_KEY/$encoded_title/$encoded_body?level=passive"
+      # 7. Removed all notification steps
+      # (Intentionally left blank as notifications are disabled)
 
-      - name: Send failure notification
-        if: failure()
-        env:
-          BARK_KEY: ${{ secrets.BARK_KEY }}
-        run: |
-          encoded_title=$(echo "Garmin同步失败" | xxd -plain | tr -d '\n' | sed 's/\(..\)/%\1/g')
-          encoded_body=$(echo "请检查日志 (运行ID: $GITHUB_RUN_ID)" | xxd -plain | tr -d '\n' | sed 's/\(..\)/%\1/g')
-          curl -sSf "https://api.day.app/$BARK_KEY/$encoded_title/$encoded_body?level=active&url=https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-        timeout-minutes: 2
-
-      # 8. Updated artifact upload
+      # 8. Optional log archive
       - name: Archive logs
         if: always()
-        uses: actions/upload-artifact@v4  # 更新到v4
+        uses: actions/upload-artifact@v4
         with:
           name: sync-logs-${{ github.run_id }}
           path: |
