@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '0,15,30,45 * * * *'
+    timezone: 'Asia/Shanghai'  # 北京时间
   push:
     branches:
       - main
