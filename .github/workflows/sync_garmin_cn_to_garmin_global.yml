@@ -3,14 +3,13 @@ name: Sync Garmin CN to Garmin Global
 on:
   workflow_dispatch:
   schedule:
-    # 每小时的第0,15,30,45分执行（UTC+8 中国时区）
     - cron: "0,15,30,45 * * * *"
   push:
     branches:
       - main
 
 env:
-  TZ: Asia/Shanghai  # 设置中国时区
+  TZ: Asia/Shanghai
 
 jobs:
   sync-job:
@@ -20,29 +19,25 @@ jobs:
       contents: write
     strategy:
       matrix:
-        attempt: [1, 2, 3]  # 最多尝试3次
-      max-parallel: 1        # 串行执行
-      fail-fast: false      # 即使某次失败也继续尝试
+        attempt: [1, 2, 3]
+      max-parallel: 1
+      fail-fast: false
     
     steps:
-      # 1. 检出代码
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # 2. 设置Node.js环境
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'yarn'
 
-      # 3. 安装依赖
       - name: Install dependencies
         run: |
           yarn install --frozen-lockfile
           yarn cache clean
 
-      # 4. 健康检查
       - name: Check Garmin Service Status
         run: |
           echo "Checking Garmin service status (Attempt ${{ matrix.attempt }})..."
@@ -51,7 +46,6 @@ jobs:
           }
         timeout-minutes: 2
 
-      # 5. 主同步步骤
       - name: Run synchronization
         id: sync
         env:
@@ -77,17 +71,15 @@ jobs:
             exit 0
           else
             echo "❌ Sync attempt ${{ matrix.attempt }} failed" | tee -a "$log_file"
-            # 只有最后一次尝试才标记为失败
             if [ ${{ matrix.attempt }} -eq 3 ]; then
               echo "::error::All sync attempts failed"
               exit 1
             else
-              exit 0  # 非最后一次尝试，返回成功以继续下一次尝试
+              exit 0
             fi
           fi
         timeout-minutes: 15
 
-      # 6. 提交变更（只在最后一次尝试成功时执行）
       - name: Commit changes
         if: success() && matrix.attempt == 3 && steps.sync.outcome == 'success'
         uses: stefanzweifel/git-auto-commit-action@v5
@@ -98,12 +90,11 @@ jobs:
           skip_dirty_check: true
         continue-on-error: true
 
-      # 7. 日志归档
       - name: Archive logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sync-logs-${{ github.run_id }}
+          name: sync-logs-${{ github.run_id }}-attempt${{ matrix.attempt }}  # 关键修改点
           path: |
             logs/*.log
             !logs/empty.txt
