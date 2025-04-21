@@ -18,6 +18,12 @@ jobs:
     name: Garmin Data Sync
     permissions:
       contents: write
+    strategy:
+      matrix:
+        attempt: [1, 2, 3]  # 最多尝试3次
+      max-parallel: 1        # 串行执行
+      fail-fast: false      # 即使某次失败也继续尝试
+    
     steps:
       # 1. 检出代码
       - uses: actions/checkout@v4
@@ -39,6 +45,7 @@ jobs:
       # 4. 健康检查
       - name: Check Garmin Service Status
         run: |
+          echo "Checking Garmin service status (Attempt ${{ matrix.attempt }})..."
           curl -sSf https://connect.garmin.com > /dev/null || {
             echo "::warning::Garmin service may be unavailable"
           }
@@ -58,44 +65,31 @@ jobs:
           GARMIN_PASSWORD: ${{ secrets.GARMIN_PASSWORD }}
           GARMIN_GLOBAL_USERNAME: ${{ secrets.GARMIN_GLOBAL_USERNAME }}
           GARMIN_GLOBAL_PASSWORD: ${{ secrets.GARMIN_GLOBAL_PASSWORD }}
-          TZ: Asia/Shanghai  # 确保脚本内也使用中国时区
+          TZ: Asia/Shanghai
         run: |
-          # 创建日志目录
           mkdir -p logs
+          log_file="logs/sync_$(date +%Y%m%d_%H%M%S)_attempt${{ matrix.attempt }}.log"
           
-          # 带日志记录的执行
-          {
-            echo "Sync started at $(date '+%Y-%m-%d %H:%M:%S %Z')"
-            
-            max_attempts=2
-            attempt=1
-            success=false
-            
-            while [ $attempt -le $max_attempts ]; do
-              echo "::group::Attempt $attempt of $max_attempts"
-              if yarn sync_cn 2>&1; then
-                success=true
-                echo "::endgroup::"
-                break
-              fi
-              echo "::endgroup::"
-              attempt=$((attempt+1))
-              [ $attempt -le $max_attempts ] && sleep 30
-            done
-
-            if [ "$success" = true ]; then
-              echo "::notice::Sync completed successfully at $(date '+%Y-%m-%d %H:%M:%S %Z')"
-              exit 0
-            else
+          echo "🔄 Sync attempt ${{ matrix.attempt }} started at $(date '+%Y-%m-%d %H:%M:%S %Z')" | tee -a "$log_file"
+          
+          if yarn sync_cn 2>&1 | tee -a "$log_file"; then
+            echo "✅ Sync completed successfully" | tee -a "$log_file"
+            exit 0
+          else
+            echo "❌ Sync attempt ${{ matrix.attempt }} failed" | tee -a "$log_file"
+            # 只有最后一次尝试才标记为失败
+            if [ ${{ matrix.attempt }} -eq 3 ]; then
               echo "::error::All sync attempts failed"
               exit 1
+            else
+              exit 0  # 非最后一次尝试，返回成功以继续下一次尝试
             fi
-          } | tee "logs/sync_$(date +%Y%m%d_%H%M%S).log"
+          fi
         timeout-minutes: 15
 
-      # 6. 提交变更
+      # 6. 提交变更（只在最后一次尝试成功时执行）
       - name: Commit changes
-        if: success() && steps.sync.outcome == 'success'
+        if: success() && matrix.attempt == 3 && steps.sync.outcome == 'success'
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: Update Garmin Session [skip ci]"
