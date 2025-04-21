@@ -67,7 +67,10 @@ jobs:
           echo "🔄 Sync attempt ${{ matrix.attempt }} started at $(date '+%Y-%m-%d %H:%M:%S %Z')" | tee -a "$log_file"
           
           if yarn sync_cn 2>&1 | tee -a "$log_file"; then
-            echo "✅ Sync completed successfully" | tee -a "$log_file"
+            completion_time=$(date '+%Y-%m-%d %H:%M:%S %Z')
+            echo "✅ Sync completed successfully at $completion_time" | tee -a "$log_file"
+            echo "completion_time=$completion_time" >> $GITHUB_OUTPUT
+            echo "::notice title=Garmin Data Sync::Sync completed successfully at $completion_time"
             exit 0
           else
             echo "❌ Sync attempt ${{ matrix.attempt }} failed" | tee -a "$log_file"
@@ -94,8 +97,16 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sync-logs-${{ github.run_id }}-attempt${{ matrix.attempt }}  # 关键修改点
+          name: sync-logs-${{ github.run_id }}-attempt${{ matrix.attempt }}
           path: |
             logs/*.log
             !logs/empty.txt
           retention-days: 7
+
+      - name: Success notification
+        if: success() && matrix.attempt == 3 && steps.sync.outcome == 'success'
+        run: |
+          echo "================================"
+          echo "🚀 同步成功完成于 ${{ steps.sync.outputs.completion_time }}"
+          echo "================================"
+          echo "::notice::Garmin数据同步已完成 - ${{ steps.sync.outputs.completion_time }}"
